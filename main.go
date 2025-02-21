@@ -33,7 +33,13 @@ func createDnsClient() *alidns.Client {
 
 func fetchRealIp() string {
 	client := &http.Client{}
-	resp, err := client.Get(os.Getenv("BAO_IP_SERVICE_URL"))
+	req, err := http.NewRequest("GET", os.Getenv("BAO_IP_SERVICE_URL"), nil)
+	if err != nil {
+		log.Fatalf("Error making request: %v", err)
+	}
+	req.Header.Set("User-Agent", "curl")
+
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Fatalf("Error making request: %v", err)
 	}
