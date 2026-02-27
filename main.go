@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -44,33 +45,61 @@ func fetchRealIp() string {
 	}
 
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		log.Fatalf("Error making request: %v", err)
-	}
-	req.Header.Set("User-Agent", "curl")
+	maxRetries := 3
+	var lastErr error
 
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatalf("Error making request: %v", err)
-	}
-	defer resp.Body.Close()
+	for i := 0; i < maxRetries; i++ {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			log.Fatalf("Error creating request: %v", err)
+		}
+		req.Header.Set("User-Agent", "curl")
 
-	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("Unexpected status code: %d", resp.StatusCode)
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			log.Printf("fetchRealIp attempt %d failed: %v", i+1, err)
+			if i < maxRetries-1 {
+				time.Sleep(time.Second * time.Duration(i+1))
+			}
+			continue
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			log.Printf("fetchRealIp attempt %d failed reading response: %v", i+1, err)
+			if i < maxRetries-1 {
+				time.Sleep(time.Second * time.Duration(i+1))
+			}
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			lastErr = fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
+			log.Printf("fetchRealIp attempt %d failed: %v", i+1, lastErr)
+			if i < maxRetries-1 {
+				time.Sleep(time.Second * time.Duration(i+1))
+			}
+			continue
+		}
+
+		ip := strings.TrimSpace(string(body))
+		if net.ParseIP(ip) == nil {
+			lastErr = fmt.Errorf("invalid IP address: %s", ip)
+			log.Printf("fetchRealIp attempt %d failed: %v", i+1, lastErr)
+			if i < maxRetries-1 {
+				time.Sleep(time.Second * time.Duration(i+1))
+			}
+			continue
+		}
+
+		return ip
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Fatalf("Error reading response: %v", err)
-	}
-
-	ip := strings.TrimSpace(string(body))
-	if net.ParseIP(ip) == nil {
-		log.Fatalf("Invalid IP address: %s", ip)
-	}
-
-	return ip
+	log.Fatalf("fetchRealIp failed after %d retries: %v", maxRetries, lastErr)
+	return ""
 }
 
 func fetchDnsRecord(client *alidns.Client) *alidns.DescribeDomainRecordInfoResponseBody {
