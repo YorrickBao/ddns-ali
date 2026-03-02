@@ -112,7 +112,7 @@ func fetchDnsRecord(client *alidns.Client) *alidns.DescribeDomainRecordInfoRespo
 		RecordId: &recordId,
 	}
 
-	maxRetries := 3
+	maxRetries := 5
 	var lastErr error
 	for i := 0; i < maxRetries; i++ {
 		resp, err := client.DescribeDomainRecordInfo(&request)
@@ -120,9 +120,11 @@ func fetchDnsRecord(client *alidns.Client) *alidns.DescribeDomainRecordInfoRespo
 			return resp.Body
 		}
 		lastErr = err
-		log.Printf("DescribeDomainRecordInfo attempt %d failed: %v", i+1, err)
+		log.Printf("DescribeDomainRecordInfo attempt %d/%d failed: %v", i+1, maxRetries, err)
 		if i < maxRetries-1 {
-			time.Sleep(time.Second * time.Duration(i+1))
+			backoff := time.Duration(2<<uint(min(i, 4))) * time.Second // 2s, 4s, 8s, 16s, 32s, 32s...
+			log.Printf("Retrying in %v...", backoff)
+			time.Sleep(backoff)
 		}
 	}
 
